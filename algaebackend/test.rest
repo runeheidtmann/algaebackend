@@ -1,0 +1,18 @@
+POST http://127.0.0.1:8000/signup Content-Type: application/json
+
+{ "username": "adam", "password": "Pass1234!", "email": "adam@mail.com" }
+
+###
+
+POST http://127.0.0.1:8000/login Content-Type: application/json
+
+{ "username": "adam", "password": "Pass1234!" }
+
+###
+
+GET http://127.0.0.1:8000/test_token Content-Type: application/json Authorization: token xxx
+
+###
+POST http://127.0.0.1:8000/api/evaluations Content-Type: application/json
+
+{"user_question_raw": "Erewf awef  du der?", "user_question_enriched": "Er du  awefdor tekstblok her","LLM_answer": "Ja, self er jeg her. Hvawe fad snakker du o","user_rating": 4,"user_id": 2,"LLM": 1}
