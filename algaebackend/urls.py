@@ -12,6 +12,7 @@ from rest_framework_simplejwt.views import (
 from .views import DocumentUploadView
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api/ragchat/',views.RagChatAPIView.as_view(),name='ragchat-api'),
     path('api/chat/',views.ChatAPIView.as_view(),name='chat-api'),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
