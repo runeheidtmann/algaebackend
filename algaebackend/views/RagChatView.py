@@ -31,25 +31,29 @@ class RagChatAPIView(APIView):
         context = setup.invoke(query)
         
         #Build prompt and chain all together
-        prompt = self.buildPrompt(context,query)
+        prompt = self.buildPrompt()
+        prompt_text = prompt.format(context=context,question=query)
+        
         chain = (
                 {"context": retriever, "question": RunnablePassthrough()}
                 | prompt
                 | model
                 | parser
             )
-        answer = chain.invoke(query)
         
+        answer = chain.invoke(query)
+    
         #Build respons to be handled clientside
         data = {
             "question": query,
             "docs": context,
-            "answer": answer, 
+            "answer": answer,
+            "prompt": prompt_text, 
         }
      
         return Response(data, 200)
     
-    def buildPrompt(self,context,question):
+    def buildPrompt(self):
         template = """
         You are a algae resarch assistant. Answer the question based on the context below. If you can't 
         answer the question, reply "I don't know".
