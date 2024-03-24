@@ -5,13 +5,18 @@ djangorestframework
 djangorestframework-simplejwt
 django-cors-headers
 requests
+openai 
 langchain
-langchain_openai
-openai
-pinecone-client==2.2.4
+langchain-openai
+langchain_pinecone
+pinecone-client
 pinecone-datasets
 pypdf
 python-dotenv
 tiktoken
 python-dotenv
 psycopg2
+
+#If search
+#duckduckgo-search
+#black==22.3.0

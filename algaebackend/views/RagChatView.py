@@ -1,62 +1,62 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from django.http import JsonResponse
-from langchain_openai import OpenAI
-from langchain_openai import ChatOpenAI
-from langchain_openai import OpenAIEmbeddings
-from langchain.schema import HumanMessage, SystemMessage
-from langchain.chains import ConversationChain
 import os
-from algaebackend import serializers
-import dotenv
-from langchain.vectorstores import Pinecone
-from langchain.embeddings.openai import OpenAIEmbeddings
-import pinecone
-dotenv.load_dotenv()
-from langchain.chat_models import ChatOpenAI
-from langchain.chains.question_answering import load_qa_chain
+from dotenv import load_dotenv
+from langchain_openai.chat_models import ChatOpenAI
+from langchain_core.output_parsers import StrOutputParser
+from langchain.prompts import ChatPromptTemplate
+from langchain_openai.embeddings import OpenAIEmbeddings
+from langchain_pinecone import PineconeVectorStore
+from langchain_core.runnables import RunnableParallel, RunnablePassthrough
 
 class RagChatAPIView(APIView):
 
     def post(self, request, *args, **kwargs):
-        OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', 'YourAPIKey')
-        embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
-        PINECONE_API_KEY = os.getenv('PINECONE_API_KEY', 'YourAPIKey')
-        PINECONE_ENV = os.getenv('PINECONE_ENV', 'gcp-starter') 
-        # initialize pinecone
-        pinecone.init(
-            api_key=PINECONE_API_KEY,  
-            environment=PINECONE_ENV  
-        )
-        index_name = "algaeopenai" 
-
-        if index_name not in pinecone.list_indexes():
-            # we create a new index
-            pinecone.create_index(name=index_name, metric="cosine", dimension=1536)
-
-        # The OpenAI embedding model `text-embedding-ada-002 uses 1536 dimensions`
-
-        #docsearch = Pinecone.from_documents(texts, embeddings, index_name=index_name)
-
-
-        #already existing index:
-        docsearch = Pinecone.from_existing_index(index_name, embeddings)
-        index = pinecone.Index(index_name)
-        text_field = "text"  # the metadata field that contains our text
-
-        # initialize the vector store object
-        vectorstore = Pinecone(
-            index, embeddings, text_field
-        )
-        llm = ChatOpenAI(temperature=0, openai_api_key=OPENAI_API_KEY)
-        chain = load_qa_chain(llm, chain_type="stuff")
-        query = request.data.get('question')
-      
-        docs = vectorstore.similarity_search(query, k=3)
-        answer = chain.run(input_documents=docs, question=query)
+        
+        query =  request.data.get('question')
+        
+        load_dotenv()
+        OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+        index_name = os.getenv("PINECONE_INDEX_NAME")
+        
+        #init LLM and Vectorstore.
+        model = ChatOpenAI(openai_api_key=OPENAI_API_KEY, model="gpt-3.5-turbo")
+        parser = StrOutputParser()
+        embeddings = OpenAIEmbeddings()
+        vectorstore = PineconeVectorStore.from_existing_index(index_name,embeddings)
+        retriever = vectorstore.as_retriever(search_kwargs={'k': 3})
+        
+        #Save the context for references to the user.
+        setup = RunnableParallel(context=retriever, question=RunnablePassthrough())
+        context = setup.invoke(query)
+        
+        #Build prompt and chain all together
+        prompt = self.buildPrompt(context,query)
+        chain = (
+                {"context": retriever, "question": RunnablePassthrough()}
+                | prompt
+                | model
+                | parser
+            )
+        answer = chain.invoke(query)
+        
+        #Build respons to be handled clientside
         data = {
             "question": query,
-            "docs": docs,
+            "docs": context,
             "answer": answer, 
         }
+     
         return Response(data, 200)
+    
+    def buildPrompt(self,context,question):
+        template = """
+        You are a algae resarch assistant. Answer the question based on the context below. If you can't 
+        answer the question, reply "I don't know".
+
+        Context: {context}
+
+        Question: {question}
+        """
+        prompt = ChatPromptTemplate.from_template(template)
+        return prompt
