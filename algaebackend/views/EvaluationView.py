@@ -22,7 +22,7 @@ class EvaluationView(APIView):
     
 class EvaluationDetailView(APIView):
 
-    # Return a particular model with pk = id
+    # Return a model with primary key = id
     def get(self, request, id):
         try:
             evaluation = Evaluation.objects.get(id=id)
@@ -32,7 +32,7 @@ class EvaluationDetailView(APIView):
         serializer = EvaluationSerializer(evaluation)
         return Response(serializer.data)
 
-    # Update a particular model object with pk = id
+    # Update a particular model object with primary key = id
     def put(self, request, id):
         try:
             evaluation = Evaluation.objects.get(pk=id)
@@ -45,7 +45,7 @@ class EvaluationDetailView(APIView):
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
-    # Delete a particular model object with pk = id
+    # Delete a model object with id
     def delete(self, request, id):
         try:
             evaluation = Evaluation.objects.get(pk=id)

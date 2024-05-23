@@ -15,15 +15,18 @@ class EvaluationSerializer(serializers.ModelSerializer):
         user = self.context['request'].user
         # Create a new Evaluation instance with the user
         return Evaluation.objects.create(user=user, **validated_data)    
+    
+    
 class LLMSerializer(serializers.ModelSerializer):
     class Meta:
         model = LLM
         fields = ['name','description']
+        
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'username', 'email','first_name','last_name']
-        # Add other fields you want to include
+        
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
     class Meta:
