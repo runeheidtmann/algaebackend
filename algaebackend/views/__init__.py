@@ -4,3 +4,4 @@ from .CurrentUserView import CurrentUserView
 from .RagChatView import RagChatAPIView
 from .UploadView import DocumentUploadView
 from .DocumentsView import DocumentsView
+from .ChatView import ChatAPIView
