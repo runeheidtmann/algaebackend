@@ -9,6 +9,7 @@ from langchain.prompts import ChatPromptTemplate
 from langchain_openai.embeddings import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from langchain_core.runnables import RunnableParallel, RunnablePassthrough
+from langchain.retrievers.multi_query import MultiQueryRetriever
 
 class RagChatAPIView(APIView):
 
@@ -25,10 +26,17 @@ class RagChatAPIView(APIView):
             parser = StrOutputParser()
             embeddings = OpenAIEmbeddings()
             vectorstore = PineconeVectorStore.from_existing_index(index_name,embeddings)
-            retriever = vectorstore.as_retriever(search_kwargs={'k': 3})
+            
+            
+            #retriever = vectorstore.as_retriever(search_kwargs={'k': 3})
+            llm = ChatOpenAI(temperature=0)
+            retriever_from_llm = MultiQueryRetriever.from_llm(
+                retriever=vectorstore.as_retriever(), llm=llm
+            )
+            
             
             #Setup context retriever
-            setup = RunnableParallel(context=retriever, question=RunnablePassthrough())
+            setup = RunnableParallel(context=retriever_from_llm, question=RunnablePassthrough())
             context = setup.invoke(query)
             
             #Build prompt and chain it all together
@@ -37,7 +45,7 @@ class RagChatAPIView(APIView):
             
             #build question chain
             chain = (
-                    {"context": retriever, "question": RunnablePassthrough()}
+                    {"context": retriever_from_llm, "question": RunnablePassthrough()}
                     | prompt
                     | model
                     | parser
@@ -61,12 +69,15 @@ class RagChatAPIView(APIView):
     
     def buildPrompt(self):
         template = """
-        You are an algae research assistant. Answer the question based on the context below. If you can't 
-        answer the question, reply "I don't know".
+        You are an expert algae research assistant. First, provide a direct and concise answer to the question 
+        based on the context below. If the answer cannot be found in the context, respond with "I don't know." 
+        After answering, elaborate further by explaining or providing relevant details from the context.
 
         Context: {context}
 
         Question: {question}
+
+        Answer:
         """
         prompt = ChatPromptTemplate.from_template(template)
         return prompt
