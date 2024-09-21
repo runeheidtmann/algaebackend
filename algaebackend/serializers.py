@@ -4,13 +4,7 @@ from .models import Evaluation,LLM, Document,DocumentFile
 from django.contrib.auth.models import User
 
 
-
-class UserSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = User
-        fields = ['id', 'username', 'email','first_name','last_name']
 class EvaluationSerializer(serializers.ModelSerializer):
-    user = UserSerializer(readonly=True)
     class Meta:
         model = Evaluation
         fields = '__all__'
@@ -28,6 +22,10 @@ class LLMSerializer(serializers.ModelSerializer):
         model = LLM
         fields = ['name','description']
         
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email','first_name','last_name']
         
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
