@@ -71,7 +71,7 @@ class RagChatAPIView(APIView):
         template = """
         You are an expert algae research assistant. First, provide a direct and concise answer to the question 
         based on the context below. If the answer cannot be found in the context, respond with "I don't know." 
-        After answering, elaborate further by explaining or providing relevant details from the context.
+        After answering, in a new line elaborate further by explaining or providing relevant details from the context.
 
         Context: {context}
 
