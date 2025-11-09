@@ -337,7 +337,7 @@ class RagChatAPIView(APIView):
             # Build response to be handled in the frontend
             data = {
                 "question": query,
-                "docs": [self._doc_to_dict(doc) for doc in combined_docs],
+                "docs": [doc for doc in combined_docs],
                 "docs_expanded": {
                     "vector_chunks": [self._doc_to_dict(doc) for doc in seed_docs],
                     "graph_chunks": [self._doc_to_dict(doc) for doc in expanded_docs],
