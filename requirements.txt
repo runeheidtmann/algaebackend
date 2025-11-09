@@ -8,7 +8,9 @@ requests
 openai 
 langchain
 langchain-openai
-langchain_pinecone
+langchain-pinecone
+langchain-classic
+langchain-core
 pinecone-client
 pinecone-datasets
 pypdf

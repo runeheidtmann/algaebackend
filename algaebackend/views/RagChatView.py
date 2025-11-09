@@ -1,3 +1,26 @@
+"""
+RagChatView - Graph-RAG Django API View
+========================================
+
+UPDATED FOR NEWEST LANGCHAIN VERSION
+- MultiQueryRetriever import changed from langchain to langchain-classic
+- Document import changed from langchain.schema to langchain_core.documents  
+- Method changed from get_relevant_documents() to invoke()
+
+This view implements a hybrid Graph-RAG pipeline combining:
+1. Vector search for seed chunks (Pinecone)
+2. Entity extraction from seed chunks
+3. Graph expansion via Neo4j (Entity->MENTIONED_IN->Chunk)
+4. Combined retrieval for enhanced context
+
+INSTALLATION REQUIREMENTS:
+- pip install langchain
+- pip install langchain-classic
+- pip install langchain-openai
+- pip install langchain-pinecone
+- pip install langchain-core
+"""
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 import os
@@ -8,12 +31,12 @@ from rest_framework import status
 from dotenv import load_dotenv
 from langchain_openai.chat_models import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser
-from langchain.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai.embeddings import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from langchain_core.runnables import RunnableParallel, RunnablePassthrough
-from langchain.retrievers.multi_query import MultiQueryRetriever
-from langchain.schema import Document
+from langchain_classic.retrievers.multi_query import MultiQueryRetriever
+from langchain_core.documents import Document
 from neo4j import GraphDatabase
 from openai import OpenAI
 
@@ -217,7 +240,7 @@ class RagChatAPIView(APIView):
             openai_client = OpenAI(api_key=OPENAI_API_KEY)
             
             # Initialize LLM and Vectorstore
-            model = ChatOpenAI(openai_api_key=OPENAI_API_KEY, model="gpt-5")
+            model = ChatOpenAI(openai_api_key=OPENAI_API_KEY, model="chatgpt-4o-latest")
             parser = StrOutputParser()
             embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
             vectorstore = PineconeVectorStore.from_existing_index(index_name, embeddings)
@@ -230,7 +253,7 @@ class RagChatAPIView(APIView):
             )
             
             print(f"Step 1: Vector search for seed chunks...")
-            seed_docs = retriever_from_llm.get_relevant_documents(query)[:TOP_K_VECTOR]
+            seed_docs = retriever_from_llm.invoke(query)[:TOP_K_VECTOR]
             
             # Add metadata to seed documents
             for doc in seed_docs:
