@@ -14,8 +14,10 @@ pinecone-datasets
 pypdf
 python-dotenv
 tiktoken
-python-dotenv
 psycopg2
+
+# Neo4j dependencies for GraphRAG
+neo4j
 
 #If search
 #duckduckgo-search
