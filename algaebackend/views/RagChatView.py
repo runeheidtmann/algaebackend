@@ -450,16 +450,22 @@ class RagChatAPIView(APIView):
             expanded_docs = []
             if entity_names_list and NEO4J_URI and NEO4J_PASSWORD:
                 print(f"Step 3: Graph expansion via Neo4j...")
-                self.graph_expander = GraphExpander(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
-                
                 try:
+                    self.graph_expander = GraphExpander(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
                     expanded_docs = self.graph_expander.find_chunks_via_entities(
                         entity_names=entity_names_list,
                         limit=TOP_K_GRAPH
                     )
+                except Exception as neo4j_error:
+                    print(f"Neo4j graph expansion failed: {neo4j_error}")
+                    print("Continuing with vector search results only...")
+                    expanded_docs = []
                 finally:
                     if self.graph_expander:
-                        self.graph_expander.close()
+                        try:
+                            self.graph_expander.close()
+                        except:
+                            pass
             else:
                 print("Step 3: Skipping graph expansion (no entities or Neo4j not configured)")
             tracker.stop('graph_expansion')
