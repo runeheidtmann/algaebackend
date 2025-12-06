@@ -26,7 +26,9 @@ from rest_framework.response import Response
 import os
 import json
 import re
-from typing import List, Set
+import time
+import traceback
+from typing import List, Set, Dict
 from rest_framework import status
 from dotenv import load_dotenv
 from langchain_openai.chat_models import ChatOpenAI
@@ -39,6 +41,43 @@ from langchain_classic.retrievers.multi_query import MultiQueryRetriever
 from langchain_core.documents import Document
 from neo4j import GraphDatabase
 from openai import OpenAI
+from algaebackend.models.Chat import ChatSession, ChatMessage
+from algaebackend.models.ResponseMetrics import ResponseMetrics
+
+
+class ResponseTimeTracker:
+    """
+    Utility class to track response times for different pipeline stages.
+    
+    Usage:
+        tracker = ResponseTimeTracker()
+        tracker.start('vector_search')
+        # ... do vector search ...
+        tracker.stop('vector_search')
+        
+        timings = tracker.get_timings()  # {'vector_search_ms': 1234, 'total_ms': 5678}
+    """
+    
+    def __init__(self):
+        self._start_times: Dict[str, float] = {}
+        self._timings: Dict[str, int] = {}
+        self._total_start = time.time()
+    
+    def start(self, stage: str):
+        """Start timing a stage"""
+        self._start_times[stage] = time.time()
+    
+    def stop(self, stage: str):
+        """Stop timing a stage and record the duration in milliseconds"""
+        if stage in self._start_times:
+            elapsed_ms = int((time.time() - self._start_times[stage]) * 1000)
+            self._timings[f"{stage}_ms"] = elapsed_ms
+            del self._start_times[stage]
+    
+    def get_timings(self) -> Dict[str, int]:
+        """Get all recorded timings including total time"""
+        self._timings['total_ms'] = int((time.time() - self._total_start) * 1000)
+        return self._timings.copy()
 
 
 class EntityExtractor:
@@ -214,15 +253,142 @@ class GraphExpander:
 
 
 class RagChatAPIView(APIView):
+    # Configuration for chat history sliding window
+    CHAT_HISTORY_WINDOW_SIZE = 3  # Number of previous Q&A pairs to include
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Initialize graph expander as None, will be created per request
         self.graph_expander = None
 
+    def _get_or_create_session(self, request):
+        """
+        Get existing session or create new one
+        Returns (session, is_new)
+        """
+        session_id = request.data.get('session_id')
+        user = request.user
+        
+        if session_id:
+            try:
+                session = ChatSession.objects.get(id=session_id, user=user)
+                return session, False
+            except ChatSession.DoesNotExist:
+                print(f"Session {session_id} not found, creating new one")
+        
+        # Create new session
+        session = ChatSession.objects.create(
+            user=user,
+            title=f"Chat {ChatSession.objects.filter(user=user).count() + 1}"
+        )
+        return session, True
+
+    def _get_chat_history(self, session, window_size=3):
+        """
+        Retrieve the last N Q&A pairs (sliding window)
+        
+        Args:
+            session: ChatSession object
+            window_size: Number of Q&A pairs to retrieve
+        
+        Returns:
+            List of ChatMessage objects in chronological order
+        """
+        # Get last (window_size * 2) messages (each Q&A pair = 2 messages)
+        messages = ChatMessage.objects.filter(
+            session=session
+        ).order_by('-created_at')[:(window_size * 2)]
+        
+        # Reverse to get chronological order
+        return list(reversed(messages))
+
+    def _format_chat_history(self, messages):
+        """
+        Format chat messages into a string for the LLM prompt
+        
+        Args:
+            messages: List of ChatMessage objects
+        
+        Returns:
+            Formatted string of conversation history
+        """
+        if not messages:
+            return "No previous conversation."
+        
+        formatted = []
+        for msg in messages:
+            role = "User" if msg.message_type == "user" else "Assistant"
+            formatted.append(f"{role}: {msg.content}")
+        
+        return "\n".join(formatted)
+
+    def _get_all_chat_history_for_response(self, session):
+        """
+        Get ALL messages in the session for returning to frontend
+        
+        Returns:
+            List of message dictionaries
+        """
+        messages = ChatMessage.objects.filter(session=session).order_by('created_at')
+        
+        return [{
+            "id": msg.id,
+            "message_type": msg.message_type,
+            "content": msg.content,
+            "created_at": msg.created_at.isoformat(),
+            "metadata": msg.metadata
+        } for msg in messages]
+
+    def _save_messages(self, session, question, answer, rag_metadata=None):
+        """
+        Save user question and assistant answer to database
+        
+        Args:
+            session: ChatSession object
+            question: User's question text
+            answer: Assistant's answer text
+            rag_metadata: Optional dict with RAG info (entities, docs, etc.)
+        
+        Returns:
+            The assistant ChatMessage instance (for linking ResponseMetrics)
+        """
+        # Save user message
+        ChatMessage.objects.create(
+            session=session,
+            message_type='user',
+            content=question
+        )
+        
+        # Save assistant message with metadata
+        assistant_message = ChatMessage.objects.create(
+            session=session,
+            message_type='assistant',
+            content=answer,
+            metadata=rag_metadata
+        )
+        
+        # Update session timestamp
+        session.save(update_fields=['updated_at'])
+        
+        return assistant_message
+
     def post(self, request, *args, **kwargs):
+        # Initialize response time tracker
+        tracker = ResponseTimeTracker()
+        
         try:
             query = request.data.get('question')
+            
+            # Step 0: Get or create chat session
+            tracker.start('session_handling')
+            session, is_new_session = self._get_or_create_session(request)
+            print(f"Using session {session.id} (new: {is_new_session})")
+            
+            # Retrieve chat history (sliding window)
+            chat_history_messages = self._get_chat_history(session, self.CHAT_HISTORY_WINDOW_SIZE)
+            formatted_history = self._format_chat_history(chat_history_messages)
+            print(f"Retrieved {len(chat_history_messages)} messages from history")
+            tracker.stop('session_handling')
             
             load_dotenv()
             OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -246,6 +412,7 @@ class RagChatAPIView(APIView):
             vectorstore = PineconeVectorStore.from_existing_index(index_name, embeddings)
             
             # Step 1: MultiQuery Retriever for vector search (seed chunks)
+            tracker.start('vector_search')
             llm = ChatOpenAI(temperature=0, openai_api_key=OPENAI_API_KEY)
             retriever_from_llm = MultiQueryRetriever.from_llm(
                 retriever=vectorstore.as_retriever(search_kwargs={'k': TOP_K_VECTOR}),
@@ -261,8 +428,10 @@ class RagChatAPIView(APIView):
                 doc.metadata['source'] = 'pinecone'
             
             print(f"Got {len(seed_docs)} seed chunks from vector search")
+            tracker.stop('vector_search')
             
             # Step 2: Extract entity names from seed chunks
+            tracker.start('entity_extraction')
             print(f"Step 2: Extracting entity names from seed chunks...")
             entity_extractor = EntityExtractor(openai_client=openai_client, use_llm=USE_LLM_EXTRACTION)
             
@@ -274,8 +443,10 @@ class RagChatAPIView(APIView):
             
             entity_names_list = list(all_entity_names)
             print(f"Extracted {len(entity_names_list)} unique entity names")
+            tracker.stop('entity_extraction')
             
             # Step 3: Graph expansion - find more chunks via entities
+            tracker.start('graph_expansion')
             expanded_docs = []
             if entity_names_list and NEO4J_URI and NEO4J_PASSWORD:
                 print(f"Step 3: Graph expansion via Neo4j...")
@@ -291,6 +462,7 @@ class RagChatAPIView(APIView):
                         self.graph_expander.close()
             else:
                 print("Step 3: Skipping graph expansion (no entities or Neo4j not configured)")
+            tracker.stop('graph_expansion')
             
             # Step 4: Combine and deduplicate chunks
             print(f"Step 4: Combining results...")
@@ -321,22 +493,52 @@ class RagChatAPIView(APIView):
             
             # Build prompt and chain
             prompt = self.buildPrompt()
-            prompt_text = prompt.format(context=context, question=query)
+            prompt_text = prompt.format(chat_history=formatted_history, context=context, question=query)
             
-            # Build question chain with combined documents
+            # Build question chain with combined documents and chat history
             chain = (
-                {"context": lambda x: self._format_docs(combined_docs), "question": RunnablePassthrough()}
+                {
+                    "chat_history": lambda x: formatted_history,
+                    "context": lambda x: self._format_docs(combined_docs),
+                    "question": RunnablePassthrough()
+                }
                 | prompt
                 | model
                 | parser
             )
             
             # Invoke answer
+            tracker.start('llm_generation')
             answer = chain.invoke(query)
+            tracker.stop('llm_generation')
+            
+            # Get final timings
+            response_times = tracker.get_timings()
+            print(f"Response times: {response_times}")
+            
+            # Save messages to database
+            rag_metadata = {
+                "entities_extracted": entity_names_list[:20],
+                "vector_count": vector_count,
+                "graph_count": graph_count,
+                "total_chunks": len(combined_docs)
+            }
+            assistant_message = self._save_messages(session, query, answer, rag_metadata)
+            
+            # Save response metrics
+            ResponseMetrics.create_from_timings(assistant_message, response_times)
+            
+            # Get complete chat history for response
+            full_chat_history = self._get_all_chat_history_for_response(session)
         
             # Build response to be handled in the frontend
             data = {
+                "session_id": session.id,
+                "is_new_session": is_new_session,
                 "question": query,
+                "answer": answer,
+                "chat_history": full_chat_history,  # Complete conversation history
+                "chat_history_window_size": len(chat_history_messages),  # How many used in context
                 "docs": context,
                 "docs_expanded": {
                     "vector_chunks": [self._doc_to_dict(doc) for doc in seed_docs],
@@ -346,8 +548,8 @@ class RagChatAPIView(APIView):
                     "graph_count": graph_count
                 },
                 "entities_extracted": entity_names_list[:20],  # Limit to first 20 for response
-                "answer": answer,
                 "prompt": prompt_text,
+                "response_times": response_times,  # Timing metrics for each pipeline stage
             }
 
             # Return with data and 200 response
@@ -393,16 +595,26 @@ class RagChatAPIView(APIView):
     
     def buildPrompt(self):
         template = """
-        You are an expert algae research assistant. First, provide a direct and concise answer to the question 
-        based on the context below. If the answer cannot be found in the context, respond with "I don't know." 
-        After answering, in a new line elaborate further by explaining or providing relevant details from the context.
+        You are an expert algae research assistant with access to conversation history and research documents.
 
-        The context includes chunks from both vector search and graph-based entity expansion, providing 
+        Previous Conversation:
+        {chat_history}
+
+        Current Research Context:
+        The context below includes chunks from both vector search and graph-based entity expansion, providing 
         comprehensive coverage of relevant information.
 
-        Context: {context}
+        {context}
 
-        Question: {question}
+        Current Question: {question}
+
+        Instructions:
+        - First, provide a direct and concise answer to the current question.
+        - Use both the conversation history and the research context to inform your answer.
+        - If the question references previous messages ("it", "that", "the previous"), use the conversation history.
+        - If the answer cannot be found in either source, respond with "I don't know."
+        - After your direct answer, elaborate with relevant details from the context.
+        - If you could not find an answer, state that you could not find any references in the provided context. And then answer from your own knowledge. Tell the user that you are answering from your own knowledge.
 
         Answer:
         """

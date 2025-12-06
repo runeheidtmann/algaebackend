@@ -21,6 +21,15 @@ urlpatterns = [
     path('api/evaluations/<int:id>', views.EvaluationDetailView.as_view(), name='evaluation-detail'),
     path('api/upload-document/', DocumentUploadView.as_view(), name='upload-document'),
     path('api/documents/', views.DocumentsView.as_view(), name='documents'),
+    
+    # Chat Session Management
+    path('api/chat-sessions/', views.ChatSessionListCreateView.as_view(), name='chat-sessions-list'),
+    path('api/chat-sessions/<int:pk>/', views.ChatSessionDetailView.as_view(), name='chat-session-detail'),
+    path('api/chat-sessions/<int:session_id>/messages/', views.ChatMessageListView.as_view(), name='chat-messages'),
+    path('api/chat-sessions/generate-title/', views.GenerateChatTitleView.as_view(), name='generate-chat-title'),
+    
+    # Alternative URL pattern for frontend compatibility
+    path('api/chat/session/<int:pk>/', views.ChatSessionDetailView.as_view(), name='chat-session-detail-alt'),
 ]
 
 
