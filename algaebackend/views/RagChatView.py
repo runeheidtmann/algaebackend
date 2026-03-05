@@ -406,7 +406,7 @@ class RagChatAPIView(APIView):
             openai_client = OpenAI(api_key=OPENAI_API_KEY)
             
             # Initialize LLM and Vectorstore
-            model = ChatOpenAI(openai_api_key=OPENAI_API_KEY, model="chatgpt-4o")
+            model = ChatOpenAI(openai_api_key=OPENAI_API_KEY, model="gpt-4o")
             parser = StrOutputParser()
             embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
             vectorstore = PineconeVectorStore.from_existing_index(index_name, embeddings)
