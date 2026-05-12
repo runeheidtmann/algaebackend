@@ -1,5 +1,5 @@
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
 from algaebackend import views
 from django.conf import settings
 from django.conf.urls.static import static
@@ -30,6 +30,9 @@ urlpatterns = [
     
     # Alternative URL pattern for frontend compatibility
     path('api/chat/session/<int:pk>/', views.ChatSessionDetailView.as_view(), name='chat-session-detail-alt'),
+    
+    # Password Reset
+    path('api/password-reset/', include('django_rest_passwordreset.urls', namespace='password_reset')),
 ]
 
 

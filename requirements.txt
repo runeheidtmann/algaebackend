@@ -18,6 +18,7 @@ pypdf
 python-dotenv
 tiktoken
 psycopg2
+django-rest-passwordreset
 
 # Neo4j dependencies for GraphRAG
 neo4j
