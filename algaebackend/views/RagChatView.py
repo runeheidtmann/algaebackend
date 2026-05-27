@@ -398,7 +398,7 @@ class RagChatAPIView(APIView):
             NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
             
             # Configuration for GraphRAG
-            TOP_K_VECTOR = 5  # Number of seed chunks from vector search
+            TOP_K_VECTOR = 1  # Number of seed chunks from vector search
             TOP_K_GRAPH = 15  # Number of expanded chunks from graph
             USE_LLM_EXTRACTION = True  # Use LLM for entity extraction (set False for regex only)
             
