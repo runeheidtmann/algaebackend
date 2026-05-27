@@ -398,9 +398,10 @@ class RagChatAPIView(APIView):
             NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
             
             # Configuration for GraphRAG
-            TOP_K_VECTOR = 1  # Number of seed chunks from vector search
+            TOP_K_VECTOR = 5  # Number of seed chunks from vector search
             TOP_K_GRAPH = 15  # Number of expanded chunks from graph
             USE_LLM_EXTRACTION = True  # Use LLM for entity extraction (set False for regex only)
+            USE_GRAPH_EXPANSION = False  # Set True to enable entity extraction + Neo4j graph expansion
             
             # Initialize OpenAI client for entity extraction
             openai_client = OpenAI(api_key=OPENAI_API_KEY)
@@ -430,45 +431,51 @@ class RagChatAPIView(APIView):
             print(f"Got {len(seed_docs)} seed chunks from vector search")
             tracker.stop('vector_search')
             
-            # Step 2: Extract entity names from seed chunks
-            tracker.start('entity_extraction')
-            print(f"Step 2: Extracting entity names from seed chunks...")
-            entity_extractor = EntityExtractor(openai_client=openai_client, use_llm=USE_LLM_EXTRACTION)
-            
-            all_entity_names = set()
-            for i, doc in enumerate(seed_docs, 1):
-                print(f"Processing seed chunk {i}/{len(seed_docs)}...")
-                entity_names = entity_extractor.extract_from_text(doc.page_content, query)
-                all_entity_names.update(entity_names)
-            
-            entity_names_list = list(all_entity_names)
-            print(f"Extracted {len(entity_names_list)} unique entity names")
-            tracker.stop('entity_extraction')
-            
-            # Step 3: Graph expansion - find more chunks via entities
-            tracker.start('graph_expansion')
+            # Initialize defaults for graph expansion results
+            entity_names_list = []
             expanded_docs = []
-            if entity_names_list and NEO4J_URI and NEO4J_PASSWORD:
-                print(f"Step 3: Graph expansion via Neo4j...")
-                try:
-                    self.graph_expander = GraphExpander(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
-                    expanded_docs = self.graph_expander.find_chunks_via_entities(
-                        entity_names=entity_names_list,
-                        limit=TOP_K_GRAPH
-                    )
-                except Exception as neo4j_error:
-                    print(f"Neo4j graph expansion failed: {neo4j_error}")
-                    print("Continuing with vector search results only...")
-                    expanded_docs = []
-                finally:
-                    if self.graph_expander:
-                        try:
-                            self.graph_expander.close()
-                        except:
-                            pass
+            
+            if USE_GRAPH_EXPANSION:
+                # Step 2: Extract entity names from seed chunks
+                tracker.start('entity_extraction')
+                print(f"Step 2: Extracting entity names from seed chunks...")
+                entity_extractor = EntityExtractor(openai_client=openai_client, use_llm=USE_LLM_EXTRACTION)
+                
+                all_entity_names = set()
+                for i, doc in enumerate(seed_docs, 1):
+                    print(f"Processing seed chunk {i}/{len(seed_docs)}...")
+                    entity_names = entity_extractor.extract_from_text(doc.page_content, query)
+                    all_entity_names.update(entity_names)
+                
+                entity_names_list = list(all_entity_names)
+                print(f"Extracted {len(entity_names_list)} unique entity names")
+                tracker.stop('entity_extraction')
+                
+                # Step 3: Graph expansion - find more chunks via entities
+                tracker.start('graph_expansion')
+                if entity_names_list and NEO4J_URI and NEO4J_PASSWORD:
+                    print(f"Step 3: Graph expansion via Neo4j...")
+                    try:
+                        self.graph_expander = GraphExpander(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
+                        expanded_docs = self.graph_expander.find_chunks_via_entities(
+                            entity_names=entity_names_list,
+                            limit=TOP_K_GRAPH
+                        )
+                    except Exception as neo4j_error:
+                        print(f"Neo4j graph expansion failed: {neo4j_error}")
+                        print("Continuing with vector search results only...")
+                        expanded_docs = []
+                    finally:
+                        if self.graph_expander:
+                            try:
+                                self.graph_expander.close()
+                            except:
+                                pass
+                else:
+                    print("Step 3: Skipping graph expansion (no entities or Neo4j not configured)")
+                tracker.stop('graph_expansion')
             else:
-                print("Step 3: Skipping graph expansion (no entities or Neo4j not configured)")
-            tracker.stop('graph_expansion')
+                print("Graph expansion disabled (USE_GRAPH_EXPANSION=False) - using vector search only")
             
             # Step 4: Combine and deduplicate chunks
             print(f"Step 4: Combining results...")
